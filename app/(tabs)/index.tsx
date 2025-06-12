@@ -11,18 +11,24 @@ import {
   View,
 } from 'react-native';
 import 'react-native-get-random-values';
+import type QRCodeType from 'react-native-qrcode-svg';
 import QRCode from 'react-native-qrcode-svg';
 import { v4 as uuidv4 } from 'uuid';
-import { supabase } from '../../supabase';
+
+type QrCodeData = {
+  id: string;
+  lat: number;
+  lon: number;
+};
 
 export default function AdminScreen() {
   const [title, setTitle] = useState('');
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
-  const [qrcodeData, setQrcodeData] = useState(null);
+  const [qrcodeData, setQrcodeData] = useState<QrCodeData | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
-  const qrRef = useRef(null);
+  const qrRef = useRef<QRCodeType | null>(null);
 
   const generateQR = async () => {
     if (!title.trim()) {
@@ -55,17 +61,26 @@ export default function AdminScreen() {
 
       const id = uuidv4();
 
-      const { error } = await supabase.from('qrcodes').insert([
+      const response = await fetch(
+        'https://vibualoihoprrcaddlin.supabase.co/functions/v1/create-qrcode',
         {
-          id,
-          title,
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-        },
-      ]);
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            id,
+            title,
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+          }),
+        }
+      );
 
-      if (error) {
-        console.error(error);
+      const result = await response.json();
+
+      if (!response.ok || result.error) {
+        console.error(result.error || 'Erreur inconnue');
         setMessage('Erreur lors de la création dans Supabase');
       } else {
         setQrcodeData({
@@ -89,7 +104,7 @@ export default function AdminScreen() {
   const downloadSVG = () => {
     if (!qrRef.current || !qrcodeData) return;
 
-    qrRef.current.toDataURL((data) => {
+    qrRef.current.toDataURL((data: string) => {
       const svgDataUrl = `data:image/svg+xml;base64,${data}`;
 
       if (Platform.OS === 'web') {
@@ -142,7 +157,7 @@ export default function AdminScreen() {
           <QRCode
             value={JSON.stringify(qrcodeData)}
             size={200}
-            getRef={qrRef}
+            getRef={(c) => (qrRef.current = c)}
           />
           <View style={{ marginTop: 15 }}>
             <Button title="Télécharger SVG" onPress={downloadSVG} />
@@ -154,7 +169,7 @@ export default function AdminScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, justifyContent: 'center' },
+  container: { flex: 1, padding: 20, justifyContent: 'center', backgroundColor: 'white', },
   title: { fontSize: 22, fontWeight: 'bold', marginBottom: 20 },
   input: {
     borderWidth: 1,
