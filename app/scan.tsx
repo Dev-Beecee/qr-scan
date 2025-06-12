@@ -1,11 +1,10 @@
-// app/scan.tsx
-import { BarCodeScanner } from 'expo-barcode-scanner';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
-import { useEffect, useState } from 'react';
-import { Button, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Button, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-function getDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371000; // Rayon de la Terre en mètres
+function distanceInMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
     const a =
@@ -13,65 +12,86 @@ function getDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: numbe
         Math.cos(lat1 * Math.PI / 180) *
         Math.cos(lat2 * Math.PI / 180) *
         Math.sin(dLon / 2) ** 2;
-
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export default function ScanScreen() {
-    const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+    const [permission, requestPermission] = useCameraPermissions();
+    const [locationGranted, setLocationGranted] = useState(false);
+    const [facing, setFacing] = useState(CameraType.back);
     const [scanned, setScanned] = useState(false);
-    const [message, setMessage] = useState('');
+    const [result, setResult] = useState('');
 
     useEffect(() => {
         (async () => {
-            const { status: cameraStatus } = await BarCodeScanner.requestPermissionsAsync();
-            const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
-            setHasPermission(cameraStatus === 'granted' && locationStatus === 'granted');
+            const { status: locStatus } = await Location.requestForegroundPermissionsAsync();
+            setLocationGranted(locStatus === 'granted');
         })();
     }, []);
 
-    const handleBarCodeScanned = async ({ data }: { data: string }) => {
+    const handleBarCodeScanned = async ({ data }) => {
+        if (scanned) return;
+
         setScanned(true);
 
         try {
-            const parsed = JSON.parse(data); // { id, lat, lon }
-
+            const qrData = JSON.parse(data); // Ex: { id, lat, lon }
             const userLocation = await Location.getCurrentPositionAsync({});
-            const dist = getDistanceMeters(
-                parsed.lat,
-                parsed.lon,
+            const distance = distanceInMeters(
+                qrData.lat,
+                qrData.lon,
                 userLocation.coords.latitude,
                 userLocation.coords.longitude
             );
 
-            if (dist <= 50) {
-                setMessage(`✅ Scan valide (à ${dist.toFixed(2)} mètres)`);
+            if (distance <= 50) {
+                setResult(`✅ Scan valide (${distance.toFixed(2)} m)`);
             } else {
-                setMessage(`❌ Trop loin (${dist.toFixed(2)} mètres)`);
+                setResult(`❌ Trop loin (${distance.toFixed(2)} m)`);
             }
-        } catch (err) {
-            console.error(err);
-            setMessage("⚠️ QR Code invalide ou format incorrect.");
+        } catch (e) {
+            console.error(e);
+            setResult("⚠️ QR Code invalide ou données mal formatées.");
         }
     };
 
-    if (hasPermission === null) return <Text>Demande de permissions...</Text>;
-    if (!hasPermission) return <Text>Caméra ou localisation non autorisée.</Text>;
+    if (!permission || !locationGranted) {
+        return (
+            <View style={styles.center}>
+                <Text style={styles.message}>Demande de permissions...</Text>
+                <Button title="Autoriser la caméra" onPress={requestPermission} />
+            </View>
+        );
+    }
+
+    if (!permission.granted || !locationGranted) {
+        return <Text style={styles.message}>Accès caméra ou géolocalisation refusé.</Text>;
+    }
 
     return (
         <View style={styles.container}>
             {!scanned && (
-                <BarCodeScanner
-                    onBarCodeScanned={handleBarCodeScanned}
+                <CameraView
                     style={StyleSheet.absoluteFillObject}
-                />
+                    facing={facing}
+                    barcodeScannerSettings={{
+                        barcodeTypes: ['qr'],
+                    }}
+                    onBarcodeScanned={handleBarCodeScanned}
+                >
+                    <View style={styles.flipContainer}>
+                        <TouchableOpacity onPress={() => setFacing(f => f === 'back' ? 'front' : 'back')}>
+                            <Text style={styles.flipText}>↺ Retourner la caméra</Text>
+                        </TouchableOpacity>
+                    </View>
+                </CameraView>
             )}
             {scanned && (
-                <View style={styles.result}>
-                    <Text style={styles.resultText}>{message}</Text>
+                <View style={styles.resultBox}>
+                    <Text style={styles.resultText}>{result}</Text>
                     <Button title="Scanner à nouveau" onPress={() => {
                         setScanned(false);
-                        setMessage('');
+                        setResult('');
                     }} />
                 </View>
             )}
@@ -81,12 +101,27 @@ export default function ScanScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1 },
-    result: {
+    center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    message: { fontSize: 16, textAlign: 'center', marginBottom: 10 },
+    resultBox: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#000000aa',
-        padding: 20
+        padding: 20,
+        backgroundColor: '#000000aa'
     },
-    resultText: { fontSize: 18, color: 'white', marginBottom: 20, textAlign: 'center' }
+    resultText: { color: 'white', fontSize: 18, marginBottom: 20, textAlign: 'center' },
+    flipContainer: {
+        position: 'absolute',
+        bottom: 50,
+        width: '100%',
+        alignItems: 'center'
+    },
+    flipText: {
+        fontSize: 18,
+        color: '#fff',
+        backgroundColor: '#0008',
+        padding: 10,
+        borderRadius: 8
+    }
 });
