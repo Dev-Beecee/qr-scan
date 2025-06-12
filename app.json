@@ -16,7 +16,11 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -38,6 +42,17 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0daf8da0-1f8f-4473-867c-429fd044db8d"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/0daf8da0-1f8f-4473-867c-429fd044db8d"
     }
   }
 }
