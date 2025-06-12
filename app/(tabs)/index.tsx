@@ -1,75 +1,169 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import * as Location from 'expo-location';
+import React, { useRef, useState } from 'react';
+import {
+  Alert,
+  Button,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import 'react-native-get-random-values';
+import QRCode from 'react-native-qrcode-svg';
+import { v4 as uuidv4 } from 'uuid';
+import { supabase } from '../../supabase';
 
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+export default function AdminScreen() {
+  const [title, setTitle] = useState('');
+  const [latitude, setLatitude] = useState('');
+  const [longitude, setLongitude] = useState('');
+  const [qrcodeData, setQrcodeData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  const qrRef = useRef(null);
 
-export default function HomeScreen() {
+  const generateQR = async () => {
+    if (!title.trim()) {
+      setMessage('⚠️ Titre requis');
+      return;
+    }
+
+    setLoading(true);
+    setMessage('');
+
+    try {
+      let coords;
+
+      if (latitude && longitude) {
+        coords = {
+          latitude: parseFloat(latitude),
+          longitude: parseFloat(longitude),
+        };
+      } else {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          setMessage('Permission localisation refusée.');
+          setLoading(false);
+          return;
+        }
+
+        let location = await Location.getCurrentPositionAsync({});
+        coords = location.coords;
+      }
+
+      const id = uuidv4();
+
+      const { error } = await supabase.from('qrcodes').insert([
+        {
+          id,
+          title,
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        },
+      ]);
+
+      if (error) {
+        console.error(error);
+        setMessage('Erreur lors de la création dans Supabase');
+      } else {
+        setQrcodeData({
+          id,
+          lat: coords.latitude,
+          lon: coords.longitude,
+        });
+        setTitle('');
+        setLatitude('');
+        setLongitude('');
+        setMessage('✅ QR code généré avec succès');
+      }
+    } catch (e) {
+      console.error(e);
+      setMessage('Une erreur est survenue.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const downloadSVG = () => {
+    if (!qrRef.current || !qrcodeData) return;
+
+    qrRef.current.toDataURL((data) => {
+      const svgDataUrl = `data:image/svg+xml;base64,${data}`;
+
+      if (Platform.OS === 'web') {
+        const a = document.createElement('a');
+        a.href = svgDataUrl;
+        a.download = `${qrcodeData.id}.svg`;
+        a.click();
+      } else {
+        Alert.alert('Non disponible', 'Le téléchargement fonctionne uniquement sur le Web.');
+      }
+    });
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
+    >
+      <Text style={styles.title}>Créer un QR Code</Text>
+      <TextInput
+        placeholder="Nom du QR Code"
+        value={title}
+        onChangeText={setTitle}
+        style={styles.input}
+      />
+      <TextInput
+        placeholder="Latitude (laisser vide pour GPS)"
+        value={latitude}
+        onChangeText={setLatitude}
+        keyboardType="decimal-pad"
+        style={styles.input}
+      />
+      <TextInput
+        placeholder="Longitude (laisser vide pour GPS)"
+        value={longitude}
+        onChangeText={setLongitude}
+        keyboardType="decimal-pad"
+        style={styles.input}
+      />
+      <Button
+        title={loading ? 'Création...' : 'Générer QR code'}
+        onPress={generateQR}
+        disabled={loading}
+      />
+      {message !== '' && <Text style={styles.message}>{message}</Text>}
+
+      {qrcodeData && (
+        <View style={styles.qrContainer}>
+          <Text style={styles.qrLabel}>QR Code :</Text>
+          <QRCode
+            value={JSON.stringify(qrcodeData)}
+            size={200}
+            getRef={qrRef}
+          />
+          <View style={{ marginTop: 15 }}>
+            <Button title="Télécharger SVG" onPress={downloadSVG} />
+          </View>
+        </View>
+      )}
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: { flex: 1, padding: 20, justifyContent: 'center' },
+  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 20 },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 10,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
+  message: { marginTop: 10, color: 'red' },
+  qrContainer: { marginTop: 30, alignItems: 'center' },
+  qrLabel: { fontSize: 16, marginBottom: 10 },
 });
